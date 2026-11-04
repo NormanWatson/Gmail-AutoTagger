@@ -1,1 +1,1 @@
-# Gmail-AutoTagger
+This n8n workflow automatically categorizes incoming emails based on key terms defined in a reference Google Sheet. Upon receiving an email, the workflow evaluates its title and body text against the sheet's tag definitions and assigns the matching tags.
