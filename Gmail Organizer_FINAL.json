@@ -1,0 +1,1269 @@
+{
+  "name": "Gmail Organizer",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -144,
+        272
+      ],
+      "id": "1dd32160-a00d-4b78-b868-675b1403ee1c",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1eXleNBb-gO-_KYveu0_MLt-ZtzTYrXx1HUWR0wUj_PU",
+          "mode": "list",
+          "cachedResultName": "Assessment",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1eXleNBb-gO-_KYveu0_MLt-ZtzTYrXx1HUWR0wUj_PU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Classification Rules",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1eXleNBb-gO-_KYveu0_MLt-ZtzTYrXx1HUWR0wUj_PU/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        80,
+        -16
+      ],
+      "id": "7f16c1db-63ed-4eaa-b259-0dc88b529e20",
+      "name": "Classification rules",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EkOcQ4JmYgStgOGj",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1eXleNBb-gO-_KYveu0_MLt-ZtzTYrXx1HUWR0wUj_PU",
+          "mode": "list",
+          "cachedResultName": "Assessment",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1eXleNBb-gO-_KYveu0_MLt-ZtzTYrXx1HUWR0wUj_PU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1156960748,
+          "mode": "list",
+          "cachedResultName": "Logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1eXleNBb-gO-_KYveu0_MLt-ZtzTYrXx1HUWR0wUj_PU/edit#gid=1156960748"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        80,
+        176
+      ],
+      "id": "97b8856a-5f95-4a44-8fa9-cd3147f43698",
+      "name": "Logs check",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EkOcQ4JmYgStgOGj",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "simple": false,
+        "filters": {},
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        80,
+        368
+      ],
+      "id": "954598e5-a8e6-496e-a52e-3207a30c5f5c",
+      "name": "Get emails",
+      "webhookId": "de8f42fc-5a58-4148-882e-51b285430006",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "p6ZsKDbf1rrg5YEK",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Existing processed messages from Logs sheet\nconst logItems = $items(\"Logs check\");\n\n// Classification rules from Google Sheets\nconst rulesItems = $items(\"Classification rules\");\n\n// Emails retrieved from Gmail\nconst emailItems = $items(\"Get emails\");\n\n// Message IDs already recorded in Logs\nconst existingMessageIds = new Set(\n  logItems\n    .map(item => String(item.json[\"Message ID\"] || \"\").trim())\n    .filter(Boolean)\n);\n\n// ==========================================\n// PREPARE ACTIVE CLASSIFICATION RULES\n// ==========================================\n\nconst activeRules = rulesItems\n  .map(item => item.json)\n  .filter(rule =>\n    rule.Active === true ||\n    String(rule.Active).toLowerCase() === \"true\"\n  )\n  .filter(rule =>\n    rule.Label &&\n    rule.Keywords\n  )\n  .sort((a, b) =>\n    Number(b.Priority || 0) - Number(a.Priority || 0)\n  );\n\n// TRACK DUPLICATES IN CURRENT BATCH\nconst seenSignatures = new Set();\n// PROCESS EMAILS\nfor (const item of emailItems) {\n\n  const data = item.json;\n\n\n  // ========================================\n  // MESSAGE ID\n  // ========================================\n\n  const messageId = String(\n    data.id ||\n    data.messageId ||\n    \"\"\n  ).trim();\n\n  item.json.messageIdToLog = messageId;\n\n  // SUBJECT\n\n  const subject = String(\n    data.subject ||\n    data.Subject ||\n    \"\"\n  );\n  \n  // BODY\n  \n  const body = String(\n    data.text ||\n    data.textPlain ||\n    data.body ||\n    \"\"\n  );\n\n  // SENDER\n  \n  let senderEmail = \"\";\n\n  if (\n    data.from &&\n    data.from.value &&\n    data.from.value.length > 0\n  ) {\n    senderEmail =\n      data.from.value[0].address ||\n      \"\";\n  }\n\n  // Fallback for other possible Gmail formats\n  if (!senderEmail && data.from?.email) {\n    senderEmail = data.from.email;\n  }\n\n  senderEmail = String(senderEmail)\n    .trim()\n    .toLowerCase();\n\n  // NORMALIZE CONTENT\n\n  const normalizedSubject = subject\n    .replace(/\\s+/g, \" \")\n    .trim()\n    .toLowerCase();\n\n  const normalizedBody = body\n    .replace(/https?:\\/\\/\\S+/gi, \"\")\n    .replace(/\\s+/g, \" \")\n    .trim()\n    .toLowerCase();\n\n  // CONTENT SIGNATURE\n\n  /*\n   * Two messages are considered content-duplicates when\n   * they come from the same sender and have the same\n   * normalized subject and body.\n   */\n\n  const signature =\n    `${senderEmail}||${normalizedSubject}||${normalizedBody}`;\n\n  // 1. Has this exact Gmail message already been logged?\n  const alreadyLogged =\n    messageId &&\n    existingMessageIds.has(messageId);\n\n  //    appeared in this current Gmail batch?\n  const duplicateContent =\n    seenSignatures.has(signature);\n\n  item.json.isDuplicate =\n    alreadyLogged ||\n    duplicateContent;\n\n  seenSignatures.add(signature);\n\n\n  // ========================================\n  // CLASSIFICATION\n  // ========================================\n\n  const emailContent =\n    `${normalizedSubject} ${normalizedBody}`;\n\n  let assignedLabel = \"misc\";\n\n\n  for (const rule of activeRules) {\n\n    const keywords = String(rule.Keywords)\n      .split(\",\")\n      .map(keyword =>\n        keyword.trim().toLowerCase()\n      )\n      .filter(Boolean);\n\n\n    const matched = keywords.some(keyword =>\n      emailContent.includes(keyword)\n    );\n\n\n    if (matched) {\n      assignedLabel = rule.Label;\n      break;\n    }\n  }\n\n  // SAVE RESULT\n  item.json.assignedLabel = assignedLabel;\n}\n\nreturn emailItems;\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        272
+      ],
+      "id": "df7866c5-8d41-4a18-a931-85c0f703e1eb",
+      "name": "Labeling logic"
+    },
+    {
+      "parameters": {
+        "batchSize": "=1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        976,
+        272
+      ],
+      "id": "76f09a5d-70eb-4731-a8d3-8e42676a7b9e",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "resource": "label",
+        "operation": "create",
+        "name": "={{ $('Labeling logic').all().find(item => item.json.id === $json.id)?.json.assignedLabel }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1872,
+        352
+      ],
+      "id": "e04f150e-7b57-4aa7-9642-a3c62f047681",
+      "name": "Create a label",
+      "webhookId": "d17c5802-b9b0-440c-b036-397a3a71e1ab",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "p6ZsKDbf1rrg5YEK",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "let assignedLabel = \"\";\nlet originalLabelItems = [];\nlet newlyCreatedLabels = [];\n\ntry {\n  assignedLabel = String(\n    $('Labeling logic').item.json.assignedLabel || \n    $json.assignedLabel || \n    \"\"\n  ).trim();\n\n  originalLabelItems = $('Get many labels').all();\n\n  // We use try/catch here because if 'Create a label' hasn't run yet, it throws a safe error.\n  try {\n      newlyCreatedLabels = $('Create a label').all();\n  } catch(e) {\n      newlyCreatedLabels = []; \n  }\n\n} catch (err) {\n  return { json: { debugError: err.message } };\n}\n\nconst searchLabel = assignedLabel.toLowerCase();\n\n//FIRST CHECK: Did we just create this in a previous loop iteration?\nconst newlyCreatedObj = newlyCreatedLabels.find(\n   item => String(item.json.name || \"\").trim().toLowerCase() === searchLabel\n);\n\nif (newlyCreatedObj) {\n   // We already created it! Route to the TRUE branch to skip creation.\n   return {\n     json: {\n       ...$json,\n       assignedLabel: assignedLabel,\n       labelExists: true, \n       existingLabelId: newlyCreatedObj.json.id, // Grab the newly created ID\n       hasAttachments: $binary !== undefined && Object.keys($binary).length > 0\n     }\n   };\n}\n\n//SECOND CHECK: Is it in the original Google list?\nconst existingLabelObj = originalLabelItems.find(\n  item => String(item.json.name || \"\").trim().toLowerCase() === searchLabel\n);\n\nconst labelExists = !!existingLabelObj;\nconst existingLabelId = existingLabelObj ? existingLabelObj.json.id : null;\n\nreturn {\n  json: {\n    ...$json,\n    assignedLabel: assignedLabel,\n    labelExists: labelExists,\n    existingLabelId: existingLabelId,\n    hasAttachments: $binary !== undefined && Object.keys($binary).length > 0\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        272
+      ],
+      "id": "e7a69114-5e60-43b2-a5ec-4e211bca3a3d",
+      "name": "Label exist tag"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4241d396-c905-4c08-adc4-7dcc31772e5a",
+              "leftValue": "={{ $json.labelExists }}",
+              "rightValue": "dsddd",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1648,
+        96
+      ],
+      "id": "939fc741-064d-4d20-b934-0c05aec2c62a",
+      "name": "label exist check"
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Loop Over Items').item.json.messageIdToLog }}",
+        "labelIds": "={{ [ $json.existingLabelId || $json.id ] }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2112,
+        160
+      ],
+      "id": "3288f943-4ffd-4524-9216-92c4650cba71",
+      "name": "Add label to message",
+      "webhookId": "9184c4b0-0ed1-4a82-a038-b56f2f9eed03",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "p6ZsKDbf1rrg5YEK",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $('Labeling logic').item.json.messageIdToLog }}",
+        "simple": false,
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        272
+      ],
+      "id": "a7f91059-b768-417b-aaf2-e189933ad365",
+      "name": "download attachment",
+      "webhookId": "44a6c6dd-b469-4024-a95a-94d19591591e",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "p6ZsKDbf1rrg5YEK",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "label"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        80,
+        560
+      ],
+      "id": "dbc5c4f6-1f6e-40ea-a5de-0a0fab0a6889",
+      "name": "Get many labels",
+      "webhookId": "57696524-255a-4e6d-bc61-8d08f8db24e0",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "p6ZsKDbf1rrg5YEK",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "Create an n8n workflow that:\nAutomatically checks a Gmail inbox at predefined time intervals for incoming emails under multiple labels (e.g., label1, label2, label3, etc.)  \nProcesses each email by extracting key sender information and inserting it into a Google Sheet\nIf any attachments are found, Download them to Google Drive and make sure that each attachment retains its original filename.\nGroup the attachments on a folder by label and date received, and the folder names should be the name of the sender.",
+        "height": 304,
+        "width": 432
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -640,
+        -96
+      ],
+      "typeVersion": 1,
+      "id": "a234b744-7013-40c7-a846-3b177fa6eae4",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2fa9eb0b-7ba9-4101-a64f-27ff6aced9b6",
+              "leftValue": "={{ $('Labeling logic').item.json.isDuplicate }}",
+              "rightValue": "false",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        752,
+        80
+      ],
+      "id": "3e05ee8e-fc45-4b5b-9cde-9de4e35d7235",
+      "name": "is duplicate?"
+    },
+    {
+      "parameters": {
+        "numberInputs": 4
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        304,
+        240
+      ],
+      "id": "4b50c79a-6902-4266-b7fe-4cfb8ad957a2",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a7e630b3-2142-4cf7-8387-c328c561f107",
+              "leftValue": "={{ $('Label exist tag').item.json.hasAttachments }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2336,
+        448
+      ],
+      "id": "20e7d170-63a5-4fa4-8577-0274590da517",
+      "name": "Has attachments?"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3024,
+        16
+      ],
+      "id": "869783a0-e260-46b8-8660-a2eb378965dd",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3664,
+        16
+      ],
+      "id": "e347433b-fbf6-4dc7-bac6-14470309539a",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "=name = '{{ $('Loop Over Items').item.json.assignedLabel }} - {{ DateTime.fromISO($('Loop Over Items').item.json.date).setZone('Asia/Manila').toFormat('yyyy-MM-dd') }}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+        "filter": {},
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2528,
+        112
+      ],
+      "id": "5644649f-6acd-4502-814c-d83690a183c3",
+      "name": "Label",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "p7TWHt2yINEPrWWh",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "=name = '{{ $('Loop Over Items').item.json.from.value[0].name || $('Loop Over Items').item.json.from.value[0].address }}'and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+        "filter": {},
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3168,
+        16
+      ],
+      "id": "c83fc037-cd67-4f78-96ba-201e63a4375d",
+      "name": "Sender",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "p7TWHt2yINEPrWWh",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $('Loop Over Items').item.json.assignedLabel }} - {{ DateTime.fromISO($('Loop Over Items').item.json.date).setZone('Asia/Manila').toFormat('yyyy-MM-dd') }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1fYLXEj7n9XLxOqBzSEKSmYgZr6ARqPB8",
+          "mode": "list",
+          "cachedResultName": "Gmail Attachments",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1fYLXEj7n9XLxOqBzSEKSmYgZr6ARqPB8"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2880,
+        224
+      ],
+      "id": "c22f414b-4214-4255-891c-021a792babb3",
+      "name": "Create parent folder",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "p7TWHt2yINEPrWWh",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $('Loop Over Items').item.json.from.value[0].name || $('Loop Over Items').item.json.from.value[0].address }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Merge1').item.json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3536,
+        224
+      ],
+      "id": "314ee156-f3b1-4129-9eec-f4f38319f439",
+      "name": "Create child folder",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "p7TWHt2yINEPrWWh",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "661e956d-05df-4ee9-8983-d6b5e75b0d62",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2704,
+        112
+      ],
+      "id": "1795e1f6-3cb3-49bf-9a74-8d61725e18a1",
+      "name": "Is parent folder present?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "661e956d-05df-4ee9-8983-d6b5e75b0d62",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3360,
+        16
+      ],
+      "id": "787580c4-1bfa-4cab-ba94-4132951f28d6",
+      "name": "Is child node present?"
+    },
+    {
+      "parameters": {
+        "inputDataFieldName": "attachment_0",
+        "name": "=",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Merge2').item.json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        4464,
+        -32
+      ],
+      "id": "e4c00a0d-fcbb-4684-aac6-77c31015fe0b",
+      "name": "Upload file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "p7TWHt2yINEPrWWh",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "=name = '{{ $('download attachment').item.binary.attachment_0.fileName }}' and '{{ $json.id }}' in parents and trashed = false",
+        "filter": {},
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        3872,
+        16
+      ],
+      "id": "d3e1972f-98ee-49ab-8e01-96602b81e0ef",
+      "name": "File Duplicate Search",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "p7TWHt2yINEPrWWh",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const inputItem = $input.item;\nconst gmailNode = $('download attachment').first(); \n\nreturn {\n  json: inputItem.json,\n  binary: gmailNode ? gmailNode.binary : {}\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4288,
+        -32
+      ],
+      "id": "e9bf0b16-530d-47c2-9227-d040c7bc7b6d",
+      "name": "Fetch binary"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "891a368c-4bd7-4064-b57c-a60ae1d02b1e",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4064,
+        16
+      ],
+      "id": "3f3cd536-3d0a-4da2-b15e-1465d7ef04d7",
+      "name": "Is not duplicated file?"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1eXleNBb-gO-_KYveu0_MLt-ZtzTYrXx1HUWR0wUj_PU",
+          "mode": "list",
+          "cachedResultName": "Assessment",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1eXleNBb-gO-_KYveu0_MLt-ZtzTYrXx1HUWR0wUj_PU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1156960748,
+          "mode": "list",
+          "cachedResultName": "Logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1eXleNBb-gO-_KYveu0_MLt-ZtzTYrXx1HUWR0wUj_PU/edit#gid=1156960748"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Message ID": "={{ $('download attachment').item.json.id }}",
+            "Date Received": "={{ $('Loop Over Items').item.json.date }}",
+            "Sender Email": "={{ $('Loop Over Items').item.json.from.value[0].address }}",
+            "Subject": "={{ $('Loop Over Items').item.json.subject }}",
+            "Label": "={{ $('Loop Over Items').item.json.assignedLabel}}",
+            "Attachment": "={{ $('download attachment').item?.binary?.attachment_0?.fileName || 'NA' }}",
+            "Drive Location": "={{ $json.webViewLink || 'No Attachment' }}"
+          },
+          "matchingColumns": [
+            "Message ID"
+          ],
+          "schema": [
+            {
+              "id": "Message ID",
+              "displayName": "Message ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date Received",
+              "displayName": "Date Received",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Sender Email",
+              "displayName": "Sender Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Subject",
+              "displayName": "Subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Label",
+              "displayName": "Label",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Attachment",
+              "displayName": "Attachment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Drive Location",
+              "displayName": "Drive Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4848,
+        464
+      ],
+      "id": "e226c5b8-df8c-4bd2-b9c4-d44c4061e509",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EkOcQ4JmYgStgOGj",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": " Simultaneously pulls three data sources to set up the processing context",
+        "height": 112,
+        "width": 208
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        384,
+        112
+      ],
+      "id": "a498f5d1-4978-41c2-9db6-72c5312c5486",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "I made a workflow that automatically classifies incoming emails and gives them a personalized label based on a normalized scan of the subject and body of the email",
+        "width": 320
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -576,
+        240
+      ],
+      "id": "3a0c2f25-ca9f-4c3e-97b6-f3b0d761c0b1",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "Classification rules sheets lets non technical users manipulate labels without touching any code. Additionally, this allows for scalable labeling options. Within the Google sheet, it has the following columns:\n\nACTIVE : boolean column to activate/ deactivate a label\n\nLABEL: label name\n\nKEYWORDS: what the agent looks for to tag the email with a label\n\nPRIORITY: conceptual priority bracketing for an instance where an email hold two different label-keywords in the same email",
+        "height": 352,
+        "width": 448
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -96,
+        -368
+      ],
+      "id": "dd5d5ea4-2088-44bf-a8ee-1b81662653a9",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "Removes 2 types of duplicates:\n\nMessage ID duplicates to keep logs integrity\n\nContent Duplicates \nactual duplicated emails",
+        "height": 176,
+        "width": 288
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        688,
+        -112
+      ],
+      "id": "8639a08e-2df3-4c9d-9a6c-df5bea28deb9",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "logic for when the user adds a new label",
+        "height": 80,
+        "width": 256
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "1fd85564-8786-4e79-a7e2-5de783fd618b",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "If no new emails are found, this makes sure that only one copy of each attachment is present in the google drive",
+        "height": 112,
+        "width": 288
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3936,
+        -128
+      ],
+      "id": "e37261c1-a8b8-4d44-824e-fabe76c94319",
+      "name": "Sticky Note6"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Classification rules",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get emails",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Logs check",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get many labels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get emails": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Labeling logic": {
+      "main": [
+        [
+          {
+            "node": "is duplicate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classification rules": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Logs check": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "download attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a label": {
+      "main": [
+        [
+          {
+            "node": "Add label to message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label exist tag": {
+      "main": [
+        [
+          {
+            "node": "label exist check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "label exist check": {
+      "main": [
+        [
+          {
+            "node": "Add label to message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create a label",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add label to message": {
+      "main": [
+        [
+          {
+            "node": "Has attachments?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "download attachment": {
+      "main": [
+        [
+          {
+            "node": "Label exist tag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many labels": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "is duplicate?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Labeling logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has attachments?": {
+      "main": [
+        [
+          {
+            "node": "Label",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label": {
+      "main": [
+        [
+          {
+            "node": "Is parent folder present?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sender": {
+      "main": [
+        [
+          {
+            "node": "Is child node present?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create parent folder": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Create child folder": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Is parent folder present?": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create parent folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is child node present?": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create child folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge2": {
+      "main": [
+        [
+          {
+            "node": "File Duplicate Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload file": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File Duplicate Search": {
+      "main": [
+        [
+          {
+            "node": "Is not duplicated file?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch binary": {
+      "main": [
+        [
+          {
+            "node": "Upload file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is not duplicated file?": {
+      "main": [
+        [
+          {
+            "node": "Fetch binary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "2b910f4b-0956-485d-9457-164f3d8db406",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7078a7e61dd972cd4f62382b58b6ba44765863c32bbbe6586fb54da9c078cb35"
+  },
+  "nodeGroups": [],
+  "id": "qF9XcI662wOPUAml",
+  "tags": []
+}
